@@ -1,0 +1,85 @@
+---
+title: "P8105_HW6-yz4188"
+author: "Yueran Zhang"
+date: "12/02/2021"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(modelr)
+library(mgcv)
+```
+
+#Problem 1 
+```{r}
+birthweight_df = read_csv("./birthweight.csv")
+```
+
+
+```{r}
+#checking miss value
+skimr::skim(birthweight_df)$n_missing 
+```
+There is no missing value in our dataframe.
+
+
+
+```{r}
+## convert variables into factor
+birthweight_df =
+  birthweight_df %>%
+    mutate(babysex = recode_factor(babysex, "1" = "male", "2" = "female")) %>% 
+    mutate(frace = recode_factor(frace, "1" = "White", "2" = "Black", "3" = "Asian", "4" = "Puerto Rican", "8" = "Other", "9" = "Unknown")) %>% 
+    mutate(malform = recode_factor(malform, "0" = "absent", "1" = "present")) %>% 
+    mutate(mrace = recode_factor(mrace, "1" = "White", "2" = "Black", "3" = "Asian", "4" = "Puerto Rican", "8" = "Other")) 
+
+birthweight_df
+```
+
+```{r}
+## propose a regression model for birthweight
+fit = lm(bwt ~ wtgain * ppwt, data = birthweight_df)
+  
+fit %>% 
+   broom::tidy() %>% 
+   select(term, estimate, p.value) %>%
+   knitr::kable(digits = 3)
+
+birthweight_df %>% 
+  modelr::add_predictions(fit) %>%
+  modelr::add_residuals(fit) %>%
+  ggplot(aes(x = pred,y = resid)) + geom_violin() 
+
+```
+
+
+```{r}
+## compare with two other models
+cv_df = 
+  crossv_mc(birthweight_df, 100) %>% 
+  mutate(
+    fit = map(train, ~ lm(bwt~ wtgain * ppwt, data =.x )),
+    model_1 = map(train, ~ lm(bwt ~ blength + gaweeks, data =.x )),
+    model_2 = map(train, ~ lm(bwt ~ bhead * blength * babysex, data =.x ))) %>%
+  
+  mutate(
+    rmse_fit = map2_dbl(fit, test, ~rmse(model = .x, data = .y)),
+    rmse_model_1 = map2_dbl(model_1, test, ~rmse(model = .x, data = .y)),
+    rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y)))
+
+cv_plot =  cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+
+cv_plot
+
+```
+
+From our plot, we can know that`model_2` is the best model to describe, which used head circumference, length, sex and all interactions.
