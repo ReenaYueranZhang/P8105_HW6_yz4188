@@ -18,7 +18,7 @@ birthweight_df = read_csv("./birthweight.csv")
 
 
 ```{r}
-#checking miss value
+## checking miss value
 skimr::skim(birthweight_df)$n_missing 
 ```
 There is no missing value in our dataframe.
@@ -83,3 +83,118 @@ cv_plot
 ```
 
 From our plot, we can know that`model_2` is the best model to describe, which used head circumference, length, sex and all interactions.
+
+
+#Problem 2
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+```{r}
+## bootsample and check for it 
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+
+boot_sample(weather_df) %>% 
+  ggplot(aes(x = tmin, y = tmax)) + 
+  geom_point(alpha = .5) +
+  stat_smooth(method = "lm")
+
+```
+
+
+## Bootstrap
+
+### R_Square
+```{r, echo=FALSE}
+set.seed(1)
+
+R_square = 
+    tibble(
+    strap_number = 1:5000,
+    strap_sample = rerun(5000, boot_sample(weather_df))
+  )
+```
+
+```{r}
+R_square_results =
+  R_square %>%
+mutate(
+    models = map(strap_sample, ~lm(tmax ~ tmin, data = .x) ),
+    r_results = map(models, broom::glance)) %>% 
+  select(-strap_sample, -models) %>% 
+  unnest(r_results) 
+
+R_square_results
+```
+
+```{r}
+R_square_results %>%
+  ggplot(aes(x = r.squared)) +
+  geom_density()
+```
+
+```{r}
+R_square_results %>% 
+  summarize(
+    ci_lower = quantile(r.squared, 0.025), 
+    ci_upper = quantile(r.squared, 0.975))
+
+```
+For the R_square is a left skewed distribution. The mean value is  `r mean(pull(R_square_results,r.squared))`; the median value is `r median(pull(R_square_results,r.squared))`; the standard deviation is `r sd(pull(R_square_results,r.squared))`; the lower of 95% CI  is `r quantile(pull(R_square_results,r.squared), 0.025)`, the upper of 95% CI is 
+`r quantile(pull(R_square_results,r.squared), 0.975)`.
+
+
+### log_Beta
+```{r}
+set.seed(1)
+
+Beta_df = 
+    tibble(
+    strap_number = 1:5000,
+    strap_sample = rerun(5000, boot_sample(weather_df))
+  )
+```
+
+```{r}
+Beta_results =
+  Beta_df %>%
+mutate(
+    models = map(strap_sample, ~lm(tmax ~ tmin, data = .x) ),
+    beta_results = map(models, broom::tidy)) %>% 
+  select(-strap_sample, -models) %>% 
+  unnest(beta_results) 
+
+Beta_results
+```
+
+
+```{r}
+log_beta = 
+  Beta_results %>%
+  select(strap_number, term, estimate) %>%
+  pivot_wider(names_from = term,values_from = estimate) %>%
+  mutate(logbeta = log(`(Intercept)`*tmin))
+  
+```
+
+```{r}
+log_beta %>%
+  ggplot(aes(x = logbeta)) +
+  geom_density()
+```
+
+For the log_beta  is a normal distribution. The mean value is  `r mean(pull(log_beta,logbeta))`; the median value is `r median(pull(log_beta,logbeta))`; the standard deviation is `r sd(pull(log_beta,logbeta))`; the lower of 95% CI  is `r quantile(pull(log_beta,logbeta), 0.025)`, the upper of 95% CI is `r quantile(pull(log_beta,logbeta), 0.975)`.
+
